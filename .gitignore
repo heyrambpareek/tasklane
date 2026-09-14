@@ -3,6 +3,8 @@ node_modules/
 dist/
 build/
 coverage/
+.pytest_cache/
+backend/tasklane.db
 
 # Environment files
 .env

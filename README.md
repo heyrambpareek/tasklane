@@ -6,5 +6,8 @@ Tasklane is being developed with a spec-first workflow. The current product requ
 
 ## Status
 
-The frontend prototype is in `frontend/`. It uses a temporary in-memory mock API
-in `frontend/src/api/tasks.js`; a backend and database have not been implemented yet.
+The frontend prototype is in `frontend/`. Its temporary in-memory mock API is
+centralized in `frontend/src/api/tasks.js` and is ready to be replaced by the
+FastAPI and SQLite backend in `backend/`.
+
+See [`backend/README.md`](backend/README.md) for local setup and API details.

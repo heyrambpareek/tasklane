@@ -1,71 +1,71 @@
-// This is the sole boundary between the UI and task data. Replace these
-// functions with HTTP calls when the backend is introduced.
+// The sole boundary between the UI and task data. Keep backend details here so
+// the board components remain independent of the transport and API shape.
 
-const delay = (value, ms = 250) => new Promise((resolve) => setTimeout(() => resolve(structuredClone(value)), ms));
-const statuses = ["todo", "in-progress", "blocked", "done"];
-let tasks = [
-  { id: "task-1", title: "Sketch weekly priorities", description: "Pick the three outcomes that matter most this week.", priority: "high", dueDate: localDate(-1), status: "todo", position: 0, createdAt: "2026-09-10T08:30:00.000Z", updatedAt: "2026-09-12T08:30:00.000Z" },
-  { id: "task-2", title: "Review project notes", description: "Consolidate the notes from last planning session.", priority: "medium", dueDate: localDate(0), status: "todo", position: 1, createdAt: "2026-09-11T09:00:00.000Z", updatedAt: "2026-09-11T09:00:00.000Z" },
-  { id: "task-3", title: "Prepare presentation outline", description: "Create a short structure before adding slides.", priority: "high", dueDate: localDate(2), status: "in-progress", position: 0, createdAt: "2026-09-09T10:00:00.000Z", updatedAt: "2026-09-13T14:10:00.000Z" },
-  { id: "task-4", title: "Wait for design feedback", description: "Need the final copy before this can move forward.", priority: "low", dueDate: "", status: "blocked", position: 0, createdAt: "2026-09-08T11:00:00.000Z", updatedAt: "2026-09-08T11:00:00.000Z" },
-  { id: "task-5", title: "Set up a focused workspace", description: "", priority: "low", dueDate: localDate(-3), status: "done", position: 0, createdAt: "2026-09-07T11:00:00.000Z", updatedAt: "2026-09-12T16:20:00.000Z" }
-];
+const API_BASE_URL = "http://127.0.0.1:8000";
 
-function localDate(offset) {
-  const date = new Date();
-  date.setDate(date.getDate() + offset);
-  return date.toISOString().slice(0, 10);
+async function request(path, options = {}) {
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers: options.body ? { "Content-Type": "application/json", ...options.headers } : options.headers
+    });
+  } catch {
+    throw new Error("Unable to reach Tasklane. Is the backend running?");
+  }
+
+  if (!response.ok) {
+    let message = "The request could not be completed.";
+    try {
+      const body = await response.json();
+      if (Array.isArray(body.detail)) message = body.detail.map((item) => item.msg).join(" ");
+      else if (body.detail) message = body.detail;
+    } catch {
+      // Keep the generic message when the server does not return JSON.
+    }
+    throw new Error(message);
+  }
+
+  if (response.status === 204) return undefined;
+  return response.json();
 }
 
-function validateTitle(title) {
-  const trimmed = title?.trim() ?? "";
-  if (!trimmed) throw new Error("Give this task a title.");
-  if (trimmed.length > 120) throw new Error("Titles can be at most 120 characters.");
-  return trimmed;
-}
-
-function sorted() {
-  return [...tasks].sort((a, b) => statuses.indexOf(a.status) - statuses.indexOf(b.status) || a.position - b.position);
+function normalizeTask(task) {
+  return { ...task, priority: task.priority || "", dueDate: task.dueDate || "" };
 }
 
 export const taskApi = {
-  list: () => delay(sorted(), 500),
+  async list() {
+    const tasks = await request("/api/tasks");
+    return tasks.map(normalizeTask);
+  },
+
   async create(values) {
-    const status = "todo";
-    const task = { id: crypto.randomUUID(), title: validateTitle(values.title), description: values.description?.trim() ?? "", priority: values.priority || "", dueDate: values.dueDate || "", status, position: tasks.filter((item) => item.status === status).length, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-    tasks.push(task);
-    return delay(task);
+    const task = await request("/api/tasks", {
+      method: "POST",
+      body: JSON.stringify({ title: values.title, description: values.description || "", priority: values.priority || "", dueDate: values.dueDate || "" })
+    });
+    return normalizeTask(task);
   },
+
   async update(id, values) {
-    const task = tasks.find((item) => item.id === id);
-    if (!task) throw new Error("This task no longer exists.");
-    const nextStatus = values.status ?? task.status;
-    if (!statuses.includes(nextStatus)) throw new Error("That status is not available.");
-    const statusChanged = nextStatus !== task.status;
-    if (statusChanged) task.position = tasks.filter((item) => item.status === nextStatus).length;
-    Object.assign(task, { ...values, title: values.title === undefined ? task.title : validateTitle(values.title), description: values.description === undefined ? task.description : values.description.trim(), dueDate: values.dueDate ?? task.dueDate, priority: values.priority ?? task.priority, status: nextStatus, updatedAt: new Date().toISOString() });
-    normalizePositions();
-    return delay(task);
+    const task = await request(`/api/tasks/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title: values.title, description: values.description || "", priority: values.priority || "", dueDate: values.dueDate || "", status: values.status })
+    });
+    return normalizeTask(task);
   },
+
   async remove(id) {
-    const exists = tasks.some((item) => item.id === id);
-    if (!exists) throw new Error("This task no longer exists.");
-    tasks = tasks.filter((item) => item.id !== id);
-    normalizePositions();
-    return delay({ id });
+    await request(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
+    return { id };
   },
+
   async move(id, destinationStatus, destinationIndex) {
-    const task = tasks.find((item) => item.id === id);
-    if (!task || !statuses.includes(destinationStatus)) throw new Error("Unable to move that task.");
-    tasks = tasks.filter((item) => item.id !== id);
-    const destination = tasks.filter((item) => item.status === destinationStatus).sort((a, b) => a.position - b.position);
-    destination.splice(Math.max(0, Math.min(destinationIndex, destination.length)), 0, { ...task, status: destinationStatus, updatedAt: new Date().toISOString() });
-    tasks = [...tasks.filter((item) => item.status !== destinationStatus), ...destination];
-    normalizePositions();
-    return delay(tasks.find((item) => item.id === id));
+    const task = await request(`/api/tasks/${encodeURIComponent(id)}/move`, {
+      method: "POST",
+      body: JSON.stringify({ status: destinationStatus, destinationIndex })
+    });
+    return normalizeTask(task);
   }
 };
-
-function normalizePositions() {
-  statuses.forEach((status) => tasks.filter((item) => item.status === status).sort((a, b) => a.position - b.position).forEach((item, index) => { item.position = index; }));
-}
