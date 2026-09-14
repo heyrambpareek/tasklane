@@ -6,4 +6,5 @@ Tasklane is being developed with a spec-first workflow. The current product requ
 
 ## Status
 
-Planning complete. Application implementation has not started.
+The frontend prototype is in `frontend/`. It uses a temporary in-memory mock API
+in `frontend/src/api/tasks.js`; a backend and database have not been implemented yet.
